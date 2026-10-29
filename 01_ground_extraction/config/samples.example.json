@@ -1,0 +1,12 @@
+{
+  "_comment": "Copy to samples.json and edit. Relative paths are resolved from this file's folder. reference = UAV ground points (txt: 'X Y Z' per line, or LAS/LAZ).",
+  "srs": "EPSG:6673",
+  "methods": ["smrf", "pmf", "csf"],
+  "samples": [
+    {"sample_id": "kouchi",       "name": "鳥取市河内",         "aerial_lidar": "data/kouchi/05md134-in_org.copc.laz",         "reference": "data/kouchi/kouchi_ground.txt"},
+    {"sample_id": "saji",         "name": "鳥取市佐治町",       "aerial_lidar": "data/saji/05md442-444-451-in.copc.section.laz", "reference": "data/saji/Saji_ground.txt"},
+    {"sample_id": "kamihagiyama", "name": "日野郡日南町上萩山", "aerial_lidar": "data/kamihagiyama/05nb13-in_org.laz",         "reference": "data/kamihagiyama/Kamihagiyama_ground.txt"},
+    {"sample_id": "norosan",      "name": "日野郡日南町野呂山", "aerial_lidar": "data/norosan/05nb05.06-in_org.laz",          "reference": "data/norosan/Norosan_merge_ground.laz"},
+    {"sample_id": "yazu",         "name": "八頭郡八頭町",       "aerial_lidar": "data/yazu/05me30-in_org.laz",                 "reference": "data/yazu/yazu_ground.txt"}
+  ]
+}

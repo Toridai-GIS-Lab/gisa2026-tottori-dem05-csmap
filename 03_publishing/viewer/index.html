@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>鳥取県 0.5m DEMおよびCS立体図 ビューア</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  html,body,#map{margin:0;height:100%}
+  #panel{position:absolute;top:10px;right:10px;z-index:1000;background:rgba(255,255,255,.94);
+    padding:10px 12px;border-radius:6px;font:13px/1.5 sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.3);
+    width:270px;max-height:calc(100% - 40px);overflow:auto;box-sizing:border-box}
+  #panel h3{margin:0 0 4px;font-size:14px}
+  #panel h4{margin:8px 0 2px;font-size:12px;color:#555;border-bottom:1px solid #ddd}
+  #panel label{display:block;margin-top:4px}
+  #panel input[type=range]{width:100%}
+  #info{margin-top:8px;padding-top:6px;border-top:1px solid #ccc;font-family:monospace;font-size:12px;white-space:pre}
+  .row{display:flex;gap:6px;align-items:center}.row input{width:64px}
+  .note{font-size:11px;color:#666}
+  #panelHead{display:flex;justify-content:space-between;align-items:flex-start;gap:6px}
+  #btnClose{border:none;background:none;font-size:18px;line-height:1;cursor:pointer;color:#555;padding:0 2px}
+  #btnOpen{position:absolute;top:10px;right:10px;z-index:1000;display:none;background:#fff;border:none;border-radius:6px;
+    box-shadow:0 1px 4px rgba(0,0,0,.3);padding:6px 10px;font:13px sans-serif;cursor:pointer}
+  #panel.closed{display:none}
+  #panel.closed + #btnOpen{display:block}
+  @media (max-width:600px){#panel{width:220px;font-size:12px}}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="panel">
+  <div id="panelHead"><h3>鳥取県 0.5m DEMおよびCS立体図</h3><button id="btnClose" title="パネルを閉じる">×</button></div>
+  <div class="note">鳥取大学 地理情報科学研究室 / CC BY 4.0</div>
+
+  <h4>背景</h4>
+  <label><input type="radio" name="base" value="pale" checked> 淡色地図（地理院）</label>
+  <label><input type="radio" name="base" value="photo"> 空中写真（地理院 全国最新写真）</label>
+  <label><input type="radio" name="base" value="none"> なし</label>
+
+  <h4>本プロダクト</h4>
+  <label><input type="checkbox" id="chkMultiply" checked> 乗算で重ねる（段彩×CS立体図×陰影図）</label>
+  <label><input type="checkbox" id="chkRelief" checked> 段彩（標高PNGをデコード）</label>
+  <input type="range" id="opRelief" min="0" max="1" step="0.05" value="0.8">
+  <div class="row">min <input type="number" id="hmin" value="0" step="1"> max <input type="number" id="hmax" value="1500" step="1"> m</div>
+  <div class="row"><button id="btnAuto" type="button">表示範囲で自動設定</button><span id="autoMsg" class="note"></span></div>
+  <label><input type="checkbox" id="chkHs" checked> 陰影図</label>
+  <input type="range" id="opHs" min="0" max="1" step="0.05" value="0.6">
+  <label><input type="checkbox" id="chkCs"> CS立体図</label>
+  <input type="range" id="opCs" min="0" max="1" step="0.05" value="1">
+  <label><input type="checkbox" id="chkRaw"> 標高PNG（生タイル）</label>
+
+  <h4>鳥取県公開版（比較用）</h4>
+  <label><input type="checkbox" id="chkCsPref"> CS立体図（鳥取県）</label>
+  <input type="range" id="opCsPref" min="0" max="1" step="0.05" value="1">
+  <label><input type="checkbox" id="chkDemPref"> 標高PNG 生タイル（鳥取県）</label>
+  <input type="range" id="opDemPref" min="0" max="1" step="0.05" value="1">
+  <label><input type="checkbox" id="chkMultiplyRaw"> 生タイルを乗算で重ねる（本プロダクト×鳥取県）</label>
+
+  <h4>その他</h4>
+  <label><input type="checkbox" id="chkGrid"> タイル境界・z/x/y</label>
+  <div id="info">カーソルを地図上へ</div>
+</div>
+<button id="btnOpen" title="パネルを開く">☰ レイヤ</button>
+<script>
+// ===== 設定 =====
+// タイルのルート。既定は Source Cooperative 上の本プロダクト。?root=. でこのHTMLと同じ階層、?root=_dryrun 等で切替
+const Q = new URLSearchParams(location.search);
+const ROOT = Q.get('root') || 'https://data.source.coop/wata909/tottori-dem05-csmap';
+const DEM_URL = ROOT + '/dem_png/{z}/{x}/{y}.png';
+const HS_URL  = ROOT + '/hillshade/{z}/{x}/{y}.png';
+const CS_URL  = ROOT + '/cs_topo/{z}/{x}/{y}.png';
+const MIN_NATIVE = +(Q.get('minz') || 8), MAX_NATIVE = 18;
+// 鳥取県公開タイル（G空間情報センター掲載）
+const PREF_CS_URL  = 'https://rinya-tottori.geospatial.jp/tile/rinya/2024/csmap_tottori/{z}/{x}/{y}.png';
+const PREF_DEM_URL = 'https://rinya-tottori.geospatial.jp/tile/rinya/2024/gridPNG_tottori/{z}/{x}/{y}.png';
+const ATTR_OWN = '鳥取県 航空レーザ測量点群（PDL1.0）を加工: <a href="https://source.coop/wata909/tottori-dem05-csmap">鳥取大学 地理情報科学研究室</a>';
+
+// 地理院形式デコード: x=R*65536+G*256+B, x>=2^23 なら x-2^24, ×0.01m, (128,0,0)=NoData
+function decodeGSI(r, g, b) {
+  if (r === 128 && g === 0 && b === 0) return null;
+  let x = r * 65536 + g * 256 + b;
+  if (x >= 8388608) x -= 16777216;
+  return x * 0.01;
+}
+
+// 段彩カラーランプ
+// 乗算で暗くなりすぎないよう明るめの配色
+const RAMP = [[0,[160,215,235]],[0.12,[170,225,170]],[0.35,[235,240,165]],[0.55,[245,205,140]],[0.75,[225,170,135]],[0.9,[215,195,190]],[1,[250,250,250]]];
+function ramp(t) {
+  t = Math.max(0, Math.min(1, t));
+  for (let i = 1; i < RAMP.length; i++) {
+    if (t <= RAMP[i][0]) {
+      const [t0, c0] = RAMP[i-1], [t1, c1] = RAMP[i], k = (t - t0) / (t1 - t0);
+      return c0.map((v, j) => Math.round(v + (c1[j] - v) * k));
+    }
+  }
+  return RAMP[RAMP.length-1][1];
+}
+
+const map = L.map('map', {maxZoom: 21}).setView([35.36, 133.83], 10);
+L.control.scale({metric: true, imperial: false, position: 'bottomleft', maxWidth: 200}).addTo(map);
+
+// オーバーレイ用ペイン（下から 段彩 → CS立体図 → 陰影図 → 県版CS → 県版標高）。乗算は各ペインの mix-blend-mode で実現
+const PANES = ['pRelief', 'pCs', 'pHs', 'pCsPref', 'pDemPref', 'pRaw'];
+PANES.forEach((name, i) => { map.createPane(name).style.zIndex = 410 + i * 5; });
+function setMultiply(on) {
+  ['pRelief', 'pCs', 'pHs', 'pCsPref'].forEach(n => map.getPane(n).style.mixBlendMode = on ? 'multiply' : 'normal');
+}
+document.getElementById('chkMultiply').addEventListener('change', e => setMultiply(e.target.checked));
+// 生タイル（標高PNG）同士の乗算: 本プロダクト版と鳥取県版を同じ場所で重ねて比較する用
+function setMultiplyRaw(on) {
+  ['pDemPref', 'pRaw'].forEach(n => map.getPane(n).style.mixBlendMode = on ? 'multiply' : 'normal');
+}
+document.getElementById('chkMultiplyRaw').addEventListener('change', e => setMultiplyRaw(e.target.checked));
+setMultiply(true);
+
+// パネルの開閉
+const panel = document.getElementById('panel');
+document.getElementById('btnClose').onclick = () => panel.classList.add('closed');
+document.getElementById('btnOpen').onclick  = () => panel.classList.remove('closed');
+
+// ===== 背景 =====
+const GSI_ATTR = '<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>';
+const bases = {
+  pale:  L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png', {maxZoom: 21, maxNativeZoom: 18, attribution: GSI_ATTR}),
+  photo: L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', {maxZoom: 21, maxNativeZoom: 18, attribution: GSI_ATTR + '（全国最新写真）'}),
+  none:  null
+};
+let curBase = bases.pale.addTo(map);
+document.querySelectorAll('input[name=base]').forEach(r => r.addEventListener('change', e => {
+  if (curBase) map.removeLayer(curBase);
+  curBase = bases[e.target.value];
+  if (curBase) curBase.addTo(map).bringToBack();
+}));
+
+// ===== 本プロダクト =====
+// 段彩: 標高PNGを canvas 上でデコードして着色（オーバーズーム時は z18 の親タイルを切り出し拡大）
+const Relief = L.GridLayer.extend({
+  createTile(coords, done) {
+    const c = L.DomUtil.create('canvas'); c.width = c.height = 256;
+    const img = new Image(); img.crossOrigin = 'anonymous';
+    const dz = Math.max(0, coords.z - MAX_NATIVE), s = 1 << dz;
+    const z = coords.z - dz, x = Math.floor(coords.x / s), y = Math.floor(coords.y / s);
+    img.onload = () => {
+      const ctx = c.getContext('2d');
+      const tmp = document.createElement('canvas'); tmp.width = tmp.height = 256;
+      const tctx = tmp.getContext('2d'); tctx.drawImage(img, 0, 0);
+      const src = tctx.getImageData(0, 0, 256, 256).data;
+      const out = ctx.createImageData(256, 256), d = out.data;
+      const hmin = +document.getElementById('hmin').value, hmax = +document.getElementById('hmax').value;
+      const sub = 256 / s, ox = (coords.x % s) * sub, oy = (coords.y % s) * sub;
+      for (let j = 0; j < 256; j++) for (let i = 0; i < 256; i++) {
+        const si = ((Math.floor(oy + j / s)) * 256 + Math.floor(ox + i / s)) * 4;
+        const h = decodeGSI(src[si], src[si+1], src[si+2]);
+        const o = (j * 256 + i) * 4;
+        if (h === null) { d[o+3] = 0; continue; }
+        const [r, g, b] = ramp((h - hmin) / (hmax - hmin));
+        d[o] = r; d[o+1] = g; d[o+2] = b; d[o+3] = 255;
+      }
+      ctx.putImageData(out, 0, 0); done(null, c);
+    };
+    img.onerror = () => done(null, c);
+    img.src = L.Util.template(DEM_URL, {z, x, y});
+    return c;
+  }
+});
+const own = {minNativeZoom: MIN_NATIVE, maxNativeZoom: MAX_NATIVE, maxZoom: 21, attribution: ATTR_OWN};
+const relief = new Relief({pane: 'pRelief', minNativeZoom: MIN_NATIVE, minZoom: MIN_NATIVE, maxZoom: 21, opacity: 0.8, attribution: ATTR_OWN}).addTo(map);
+const hs  = L.tileLayer(HS_URL, {...own, pane: 'pHs', opacity: 0.6}).addTo(map);
+const cs  = L.tileLayer(CS_URL, {...own, pane: 'pCs', opacity: 1});
+const raw = L.tileLayer(DEM_URL, {...own, pane: 'pRaw'});
+
+// ===== 鳥取県公開版 =====
+const prefOpt = name => ({minNativeZoom: 8, maxNativeZoom: 18, maxZoom: 21, opacity: 1,
+  attribution: `鳥取県「${name}」（<a href="https://www.pref.tottori.lg.jp/322140.htm">PDL1.0</a>）`});
+const csPref  = L.tileLayer(PREF_CS_URL,  {...prefOpt('微地形図（CS立体図）'), pane: 'pCsPref'});
+const demPref = L.tileLayer(PREF_DEM_URL, {...prefOpt('数値標高モデル(DEM)0.5m PNG標高タイル'), pane: 'pDemPref'});
+
+// ===== タイル境界 =====
+const Grid = L.GridLayer.extend({
+  createTile(c) { const d = L.DomUtil.create('div');
+    d.style.cssText = 'outline:1px solid rgba(255,0,0,.7);font:11px monospace;color:#c00;padding:2px';
+    d.textContent = `${c.z}/${c.x}/${c.y}`; return d; }
+});
+const grid = new Grid({maxZoom: 21});
+
+const bind = (id, layer) => document.getElementById(id).addEventListener('change', e =>
+  e.target.checked ? layer.addTo(map) : map.removeLayer(layer));
+const opac = (id, layer) => document.getElementById(id).oninput = e => layer.setOpacity(+e.target.value);
+bind('chkRelief', relief); bind('chkHs', hs); bind('chkCs', cs); bind('chkRaw', raw);
+bind('chkCsPref', csPref); bind('chkDemPref', demPref); bind('chkGrid', grid);
+opac('opRelief', relief); opac('opHs', hs); opac('opCs', cs); opac('opCsPref', csPref); opac('opDemPref', demPref);
+['hmin','hmax'].forEach(id => document.getElementById(id).onchange = () => relief.redraw());
+
+// ===== カーソル位置の標高（本プロダクト／鳥取県公開版を比較） =====
+const cache = new Map();
+function tileData(tmpl, z, x, y) {
+  const key = `${tmpl}|${z}/${x}/${y}`;
+  if (!cache.has(key)) cache.set(key, new Promise(res => {
+    const img = new Image(); img.crossOrigin = 'anonymous';
+    img.onload = () => { try {
+        const c = document.createElement('canvas'); c.width = c.height = 256;
+        const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0); res(ctx.getImageData(0, 0, 256, 256).data);
+      } catch (err) { res('cors'); } };
+    img.onerror = () => res(null);   // タイルなし、または CORS 不許可
+    img.src = L.Util.template(tmpl, {z, x, y});
+  }));
+  return cache.get(key);
+}
+function sample(d, px, py) {
+  if (d === null) return {txt: 'タイルなし/取得不可', h: null};
+  if (d === 'cors') return {txt: '取得不可(CORS)', h: null};
+  const i = (py * 256 + px) * 4, h = decodeGSI(d[i], d[i+1], d[i+2]);
+  return {txt: h === null ? 'NoData' : h.toFixed(2) + ' m', h};
+}
+// 表示範囲の標高（2〜98パーセンタイル）で段彩の min/max を自動設定
+document.getElementById('btnAuto').onclick = async () => {
+  const msg = document.getElementById('autoMsg'); msg.textContent = ' 計算中…';
+  const z = Math.min(MAX_NATIVE, Math.max(MIN_NATIVE, Math.round(map.getZoom())));
+  const bb = map.getPixelBounds(), sc = Math.pow(2, z - map.getZoom());
+  const x0 = Math.floor(bb.min.x * sc / 256), x1 = Math.floor(bb.max.x * sc / 256);
+  const y0 = Math.floor(bb.min.y * sc / 256), y1 = Math.floor(bb.max.y * sc / 256);
+  const jobs = [];
+  for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) jobs.push(tileData(DEM_URL, z, x, y));
+  const hs = [];
+  for (const d of await Promise.all(jobs)) {
+    if (!d || d === 'cors') continue;
+    for (let i = 0; i < 256 * 256; i += 7) { const h = decodeGSI(d[i*4], d[i*4+1], d[i*4+2]); if (h !== null) hs.push(h); }
+  }
+  if (!hs.length) { msg.textContent = ' データなし'; return; }
+  hs.sort((a, b) => a - b);
+  const lo = hs[Math.floor(hs.length * 0.02)], hi = hs[Math.floor(hs.length * 0.98)];
+  document.getElementById('hmin').value = Math.floor(lo);
+  document.getElementById('hmax').value = Math.max(Math.ceil(hi), Math.floor(lo) + 1);
+  msg.textContent = ''; relief.redraw();
+};
+const info = document.getElementById('info');
+let seq = 0;
+map.on('mousemove', async e => {
+  const my = ++seq;
+  const z = Math.min(MAX_NATIVE, Math.max(MIN_NATIVE, Math.round(map.getZoom())));
+  const p = map.project(e.latlng, z);
+  const x = Math.floor(p.x / 256), y = Math.floor(p.y / 256);
+  const px = Math.floor(p.x) - x * 256, py = Math.floor(p.y) - y * 256;
+  const [a, b] = await Promise.all([tileData(DEM_URL, z, x, y), tileData(PREF_DEM_URL, z, x, y)]);
+  if (my !== seq) return;
+  const A = sample(a, px, py), B = sample(b, px, py);
+  let txt = `lat ${e.latlng.lat.toFixed(6)}  lon ${e.latlng.lng.toFixed(6)}\ntile ${z}/${x}/${y} (${px},${py})\n` +
+            `標高（本プロダクト） ${A.txt}\n標高（鳥取県公開版） ${B.txt}`;
+  if (A.h !== null && B.h !== null) txt += `\n差（本−県） ${(A.h - B.h).toFixed(2)} m`;
+  info.textContent = txt;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+# conda env create -f environment.yml && conda activate tottori-dem
+# 動作確認: Linux, PDAL 2.10.2, GDAL 3.13.3, Python 3.12
+name: tottori-dem
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pdal>=2.10        # filters.faceraster の max_triangle_edge_length を使用
+  - gdal>=3.13        # 工程03の gdal raster tile（新CLI）を使用
+  - numpy
+  - scipy
+  - pip
+  - pip:
+      - pmtiles       # 工程03の PMTiles 作成・検証
