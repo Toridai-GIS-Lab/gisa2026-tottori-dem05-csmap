@@ -4,7 +4,7 @@
 
 - **公開データ**: [Source Cooperative — wata909/tottori-dem05-csmap](https://source.coop/wata909/tottori-dem05-csmap)
 - **学会発表**: 倉信研吾・川添優摩・加藤薫・岩崎亘典「鳥取県航空レーザ測量成果と品質改善手法の検討」地理情報システム学会 2026年度秋期大会（2026-10-31）
-- **ポスター**: [docs/poster_round3.jpg](docs/poster_round3.jpg)
+- **ポスター**: [docs/poster.png](docs/poster.png)
 
 ![鳥取県全域のDEM](docs/images/fig7_tottori_dem.jpg)
 
